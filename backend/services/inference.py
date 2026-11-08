@@ -10,7 +10,7 @@ from backend.gnn.graph_builder import (
     FEATURE_SCHEMA, FEATURES_PER_ASSAY, BiologicalNetwork, VariantRecord, assay_features, build_graph,
 )
 from backend.gnn.model import DriverHGT
-from backend.services.alphagenome_service import ASSAYS, TISSUES
+from backend.services.alphagenome_service import ASSAYS, LIVE_SIGNAL_VERSION, TISSUES, Assay, TrackMatrix
 
 MAX_GENES_PER_LOCUS = 32
 
@@ -85,7 +85,7 @@ class InferenceEngine:
             artifact = torch.load(checkpoint, map_location="cpu", weights_only=True)
             if not isinstance(artifact, dict) or (
                 artifact.get("feature_schema"), artifact.get("network_version"), artifact.get("signal_source"),
-            ) != (FEATURE_SCHEMA, data.version, "alphagenome:0.11.0:ALL_FOLDS"):
+            ) != (FEATURE_SCHEMA, data.version, LIVE_SIGNAL_VERSION):
                 raise ValueError("The checkpoint feature, signal or network version does not match.")
             self.window = artifact.get("window")
             version = artifact.get("model_version")
@@ -116,7 +116,9 @@ class InferenceEngine:
         )
 
     @torch.inference_mode()
-    def score(self, variant, tracks, network):
+    def score(
+        self, variant: VariantKey, tracks: dict[Assay, TrackMatrix], network: BiologicalNetwork,
+    ) -> tuple[float, dict[Assay, float]]:
         graph = build_graph([VariantRecord(variant, assay_features(tracks),
                                           tuple(network.genes), tuple(network.cells))], network)
         features = graph["variant"].x

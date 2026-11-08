@@ -128,3 +128,31 @@ def test_sdk_adapter_with_real_sdk_types(monkeypatch):
     result = AlphaGenomeProvider("fixture").predict(variant, GenomicInterval.around(variant, "100kb"), "lung", 64)
     assert list(result) == ["CAGE"]
     np.testing.assert_array_equal(result["CAGE"].delta, np.ones((64, 1)))
+
+
+def test_live_reference_check_uses_indexed_fasta(tmp_path, monkeypatch):
+    pytest.importorskip("alphagenome")
+    from alphagenome.models import dna_client
+    from pyfaidx import Fasta
+
+    from backend.services.alphagenome_service import ProviderError
+
+    class Client:
+        def predict_variant(self, **kwargs):
+            empty = SimpleNamespace(rna_seq=None, atac=None, cage=None, splice_sites=None)
+            return SimpleNamespace(reference=empty, alternate=empty)
+
+    monkeypatch.setattr(dna_client, "DnaClient", lambda **_: Client())
+    fasta = tmp_path / "example.fa"
+    fasta.write_text(">chr22\nACTG\n")
+    variant = VariantKey("22", 2, "C", "T")
+    interval = GenomicInterval.around(variant, "100kb")
+    provider = AlphaGenomeProvider("fixture", str(fasta))
+    assert provider.validates_reference
+    with pytest.raises(ProviderError, match="index could not be read"):
+        provider.predict(variant, interval, "lung", 64)
+    with Fasta(str(fasta)):
+        pass
+    assert provider.predict(variant, interval, "lung", 64) == {}
+    with pytest.raises(ValueError, match="REF differs"):
+        provider.predict(VariantKey("22", 2, "A", "T"), interval, "lung", 64)

@@ -139,7 +139,18 @@ def test_research_checkpoint_requires_matching_context(tmp_path):
     context = engine.context(VariantKey("22", 36201698, "a", "c"), "lung", "100kb")
     assert tuple(context.genes) == ("g",)
     assert context.expression == (("lung", "g"),)
-    with TestClient(create_app(provider=MockProvider(), engine=engine)) as client:
+    with pytest.raises(ValueError, match="indexed GRCh38"):
+        create_app(provider=MockProvider(), engine=engine)
+
+    class ReferenceCheckedFixture(MockProvider):
+        name = "alphagenome"
+        validates_reference = True
+
+    with TestClient(create_app(provider=ReferenceCheckedFixture(), engine=engine)) as client:
+        prediction = client.post("/api/v1/predict", json=VARIANT)
+        assert prediction.status_code == 200
+        assert prediction.json()["score"]["mode"] == "research"
+        assert prediction.json()["reference_validated"] is True
         unsupported = client.post("/api/v1/predict", json={**VARIANT, "window": "1mb"})
         assert unsupported.status_code == 422
         assert unsupported.json()["code"] == "unsupported_context"

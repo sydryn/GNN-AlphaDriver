@@ -8,6 +8,7 @@ from numpy.typing import NDArray
 from backend.core.data_structures import GenomicArray, GenomicInterval, VariantKey
 
 Assay = Literal["RNA_SEQ", "ATAC", "CAGE", "SPLICE_SITES"]
+LIVE_SIGNAL_VERSION = "alphagenome:0.11.0:ALL_FOLDS"
 ASSAYS: tuple[Assay, ...] = ("RNA_SEQ", "ATAC", "CAGE", "SPLICE_SITES")
 TISSUES = {
     "lung": "UBERON:0002048",
@@ -52,6 +53,7 @@ class ProviderBusy(ProviderError):
 
 class TrackProvider(Protocol):
     name: Literal["mock", "alphagenome"]
+    validates_reference: bool
 
     def predict(
         self, variant: VariantKey, interval: GenomicInterval, tissue: str, points: int
@@ -88,6 +90,7 @@ def summarize_tracks(
 
 class MockProvider:
     name: Literal["mock"] = "mock"
+    validates_reference = False
 
     def predict(
         self, variant: VariantKey, interval: GenomicInterval, tissue: str, points: int
@@ -157,6 +160,7 @@ class AlphaGenomeProvider:
             metadata=[("x-goog-api-key", api_key)],
         )
         self._reference_fasta = reference_fasta
+        self.validates_reference = bool(reference_fasta)
 
     def predict(
         self, variant: VariantKey, interval: GenomicInterval, tissue: str, points: int
@@ -166,10 +170,15 @@ class AlphaGenomeProvider:
         from alphagenome.models import dna_client
 
         if self._reference_fasta:
-            from pyfaidx import Fasta
+            from pyfaidx import Fasta, FastaIndexingError
 
-            with Fasta(self._reference_fasta, rebuild=False) as fasta:
-                ref = str(fasta[variant.chromosome][variant.position - 1:variant.position]).upper()
+            try:
+                with Fasta(self._reference_fasta, rebuild=False, build_index=False) as fasta:
+                    ref = str(fasta[variant.chromosome][variant.position - 1:variant.position]).upper()
+            except (OSError, FastaIndexingError, KeyError, ValueError) as error:
+                raise ProviderError("The configured GRCh38 FASTA or its index could not be read.") from error
+            if len(ref) != 1:
+                raise ProviderError("The configured GRCh38 FASTA does not cover the requested coordinate.")
             if ref != variant.reference:
                 raise ValueError("REF differs from the configured GRCh38 reference.")
 

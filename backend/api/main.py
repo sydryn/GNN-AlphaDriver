@@ -28,10 +28,9 @@ def create_app(
         os.getenv("ALPHADRIVER_CHECKPOINT"), os.getenv("ALPHADRIVER_NETWORK"),
     )
     if provider is None:
-        if engine.mode == "research" and (not api_key or not reference_fasta):
-            raise ValueError("Research inference needs AlphaGenome credentials and an indexed GRCh38 FASTA.")
         provider = AlphaGenomeProvider(api_key, reference_fasta) if api_key else MockProvider()
-    reference_validated = provider.name == "alphagenome" and bool(reference_fasta)
+    if engine.mode == "research" and (provider.name != "alphagenome" or not provider.validates_reference):
+        raise ValueError("Research inference needs AlphaGenome and an indexed GRCh38 FASTA.")
     capacity = BoundedSemaphore(1)
 
     app = FastAPI(title="GNN-AlphaDriver", version="0.1.0")
@@ -78,11 +77,11 @@ def create_app(
                 raise UnsupportedContext(str(exc)) from exc
             if not tracks:
                 raise ProviderError("The provider returned no signal tracks for this request.")
-            response = TracksResponse(
+            fields = dict(
                 variant=query, interval=IntervalResponse(chromosome=interval.chromosome,
                                                         start=interval.start, end=interval.end),
                 tissue_ontology=TISSUES[query.tissue], signal_source=provider.name,
-                reference_validated=reference_validated,
+                reference_validated=provider.validates_reference,
                 missing_assays=[assay for assay in ASSAYS if assay not in tracks],
                 tracks=[
                     TrackResponse(
@@ -96,10 +95,10 @@ def create_app(
                 ],
             )
             if network is None:
-                return response
+                return TracksResponse(**fields)
             value, effects = engine.score(key, tracks, network)
             return PredictionResponse(
-                **response.model_dump(), score=ScoreResponse(
+                **fields, score=ScoreResponse(
                     value=value, mode=engine.mode, model_version=engine.model_version,
                     network_version=engine.network_version,
                 ),
