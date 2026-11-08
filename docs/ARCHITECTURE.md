@@ -38,7 +38,7 @@ flowchart LR
 
 ## Complexity and limits
 
-- Arrays offer constant-time offset access and contiguous scans. For L bins and T tracks, subtraction costs O(LT). One 1 Mb float32 track costs 4 MiB per allele. Request only the selected biosample for tissue-specific outputs and request splice sites separately. Process one delta column at a time. The SDK materializes the returned matrices before the application can inspect them.
+- Arrays offer constant-time offset access and contiguous scans. For L bins and T tracks, subtraction costs O(LT). One 1 Mb float32 track costs 4 MiB per allele. Request only the selected biosample for tissue-specific outputs. The SDK exempts tissue-independent splice sites from the ontology filter. Process one delta column at a time. The SDK materializes the returned matrices before the application can inspect them.
 - Variant and node lookup are expected O(1) under normal hash distribution. Constructing a key from its bounded fields is constant-size work. Testing a fixed number of equality calls across map sizes verifies that lookup avoids a scan without relying on machine-specific latency thresholds.
 - COO costs O(E) storage for each relation. Building indices uses O(V + E) memory and avoids an O(V²) adjacency matrix. Bidirectional relations support two-hop paths from genes and cell types back to variants. Residual updates preserve isolated nodes. Attention computes messages only along stored edges, with additional dense projections on node features.
 - Bound per-request graph size, chart points and process concurrency. Use fast rejection with HTTP 503 when inference capacity is exhausted. Keep the SDK retry policy as the only retry layer and return stable error codes for upstream failures. Revisit quotas and distributed admission control before increasing worker count.
@@ -46,7 +46,7 @@ flowchart LR
 
 ## Scientific checks
 
-Validate the REF allele against the selected reference for experimental runs. The SDK supplies that validation for live requests. Offline requests validate coordinates and allele syntax using synthetic tracks. Limit this version to SNVs so alternate-sequence bin shifts cannot contaminate delta values. Keep tissue-independent splice sites visible in the track metadata.
+Validate the REF allele against the selected reference for experimental runs. The SDK permits substituting an arbitrary REF base. Configure an indexed GRCh38 FASTA for reference validation and require it when serving a research checkpoint. Offline requests validate coordinates and allele syntax using synthetic tracks. Limit this version to SNVs so alternate-sequence bin shifts cannot contaminate delta values. Keep tissue-independent splice sites visible in the track metadata.
 
 Use curated evidence to construct variant–gene edges for training and held-out inference. Gene activity or regulatory proximity by itself does not establish that a variant drives a tumor. Keep graph annotations label-independent, split by patient and genomic locus before graph construction, and hold out tumor types for transfer evaluation. The 0.1% prevalence in the brief is a stress-test assumption. Measure prevalence in the cohort and report average precision, precision at a fixed review budget, and calibration under the target prevalence. A sigmoid model output becomes a probability estimate only after evaluation and calibration. Per-assay deltas describe signal changes, and an optional assay masking diagnostic measures model sensitivity.
 
