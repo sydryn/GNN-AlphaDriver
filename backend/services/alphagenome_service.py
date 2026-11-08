@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from hashlib import blake2b
-from typing import Literal, Protocol
+from typing import Literal, NamedTuple, Protocol
 
 import numpy as np
 from numpy.typing import NDArray
@@ -129,9 +129,33 @@ class AlphaGenomeProvider:
     MAX_TRACKS_PER_ASSAY = 64
 
     def __init__(self, api_key: str, reference_fasta: str | None = None) -> None:
+        import grpc
         from alphagenome.models import dna_client
 
-        self._client = dna_client.create(api_key)
+        class CallDetails(NamedTuple):
+            method: str
+            timeout: float
+            metadata: tuple
+            credentials: object
+            wait_for_ready: bool | None
+            compression: object
+
+        class PredictionDeadline(grpc.StreamStreamClientInterceptor):
+            def intercept_stream_stream(self, continuation, details, requests):
+                return continuation(CallDetails(
+                    details.method, details.timeout if details.timeout is not None else 30.0,
+                    details.metadata, details.credentials, details.wait_for_ready, details.compression,
+                ), requests)
+
+        channel = grpc.secure_channel(
+            "dns:///gdmscience.googleapis.com:443", grpc.ssl_channel_credentials(),
+            options=[("grpc.max_receive_message_length", 64 * 1024 * 1024)],
+        )
+        self._client = dna_client.DnaClient(
+            channel=grpc.intercept_channel(channel, PredictionDeadline()),
+            model_version=dna_client.ModelVersion.ALL_FOLDS,
+            metadata=[("x-goog-api-key", api_key)],
+        )
         self._reference_fasta = reference_fasta
 
     def predict(
@@ -162,6 +186,8 @@ class AlphaGenomeProvider:
                                 grpc.StatusCode.DEADLINE_EXCEEDED}:
                 raise ProviderBusy("AlphaGenome is busy. Try again shortly.") from error
             raise ProviderError("AlphaGenome could not complete the prediction.") from error
+        except ValueError as error:
+            raise ProviderError("AlphaGenome returned incompatible track data.") from error
         try:
             return self._summarize(result, interval, points)
         except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:

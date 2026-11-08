@@ -123,7 +123,7 @@ def test_sdk_adapter_with_real_sdk_types(monkeypatch):
             alt = track_data.TrackData(values * 2, metadata, resolution=128, interval=interval)
             return SimpleNamespace(reference=dna_output.Output(cage=ref), alternate=dna_output.Output(cage=alt))
 
-    monkeypatch.setattr(dna_client, "create", lambda _: Client())
+    monkeypatch.setattr(dna_client, "DnaClient", lambda **_: Client())
     variant = VariantKey("22", 36201698, "A", "C")
     result = AlphaGenomeProvider("fixture").predict(variant, GenomicInterval.around(variant, "100kb"), "lung", 64)
     assert list(result) == ["CAGE"]
