@@ -82,3 +82,46 @@ describe("variant workspace", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Assay sensitivity" })).toBeInTheDocument());
   });
 });
+
+it("renders allele paths, switches splice columns, and exports the assay matrix", async () => {
+  const user = userEvent.setup();
+  const splice: Track = {
+    ...track, assay: "SPLICE_SITES", units: "Splice-site probability", tissue_specific: false,
+    columns: [{ name: "Donor", strand: "+" }, { name: "Acceptor", strand: "-" }],
+    reference: [[0.1, 0.5], [0.2, 0.7]], alternate: [[0.2, 0.6], [0.3, 0.8]],
+    delta: [[0.1, 0.1], [0.1, 0.1]],
+  };
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 840, 258));
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({
+    ...result, tracks: [track, splice], missing_assays: ["ATAC", "CAGE"],
+  }));
+  const create = vi.fn((_blob: Blob) => "blob:track");
+  const originalUrl = globalThis.URL;
+  const revoke = vi.fn();
+  globalThis.URL = Object.assign(class extends originalUrl {}, { createObjectURL: create, revokeObjectURL: revoke });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  try {
+    const { container } = render(<Workspace docsUrl="#" />);
+    await screen.findByRole("heading", { name: "Genomic signal tracks" });
+    await waitFor(() => expect(container.querySelectorAll("path.recharts-line-curve")).toHaveLength(2));
+    await user.click(screen.getByRole("button", { name: "Splice sites" }));
+    await user.selectOptions(screen.getByLabelText("Track"), "1");
+    expect(screen.getByLabelText("Track")).toHaveValue("1");
+    expect(screen.getByText("Tissue-independent")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Export CSV" }));
+    expect(click.mock.contexts[0]).toHaveProperty("download", "chr22-36201698-A-C-SPLICE_SITES.csv");
+    const csv = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = reject;
+      reader.readAsText(create.mock.calls[0][0]);
+    });
+    expect(csv.split("\n")).toEqual([
+      'start_0based,end_exclusive,"REF Donor","ALT Donor","delta Donor","REF Acceptor","ALT Acceptor","delta Acceptor"',
+      "36200000,36202000,0.1,0.2,0.1,0.5,0.6,0.1",
+      "36202000,36204000,0.2,0.3,0.1,0.7,0.8,0.1",
+    ]);
+  } finally {
+    globalThis.URL = originalUrl;
+  }
+});

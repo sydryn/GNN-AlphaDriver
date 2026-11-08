@@ -17,7 +17,8 @@ function exportTrack(track: Track, result: Prediction) {
     track.bin_edges[row], track.bin_edges[row + 1],
     ...values.flatMap((ref, col) => [ref, track.alternate[row][col], track.delta[row][col]]),
   ]);
-  const url = URL.createObjectURL(new Blob(
+  const objectUrls = URL;
+  const url = objectUrls.createObjectURL(new Blob(
     [[header.join(","), ...rows.map((row) => row.join(","))].join("\n")], { type: "text/csv;charset=utf-8" },
   ));
   const link = document.createElement("a");
@@ -25,7 +26,7 @@ function exportTrack(track: Track, result: Prediction) {
   link.href = url;
   link.download = `${chr}-${pos}-${ref}-${alt}-${track.assay}.csv`;
   link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => objectUrls.revokeObjectURL(url), 1000);
 }
 
 export default function GenomicTrackViewer({ result }: { result: Prediction }) {
